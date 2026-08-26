@@ -1,0 +1,19 @@
+[package]
+name = "riskcore"
+version = "0.1.0"
+edition = "2021"
+description = "A dependency-free Rust core for portfolio risk analytics"
+
+[lib]
+name = "riskcore"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "riskcore"
+path = "src/bin/riskcore.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+
