@@ -23,7 +23,7 @@ fn validate_returns(values: &[f64]) -> Result<(), RiskError> {
 }
 
 fn validate_confidence(confidence: f64) -> Result<(), RiskError> {
-    if !confidence.is_finite() || confidence <= 0.5 || confidence >= 1.0 {
+    if !confidence.is_finite() || !(0.5..1.0).contains(&confidence) {
         return Err(RiskError::InvalidConfidence);
     }
     Ok(())
@@ -82,7 +82,7 @@ pub fn sample_volatility(returns: &[f64]) -> Result<f64, RiskError> {
 
 pub fn ewma_volatility(returns: &[f64], decay: f64) -> Result<f64, RiskError> {
     validate_returns(returns)?;
-    if !decay.is_finite() || decay <= 0.0 || decay >= 1.0 {
+    if !decay.is_finite() || !(0.0..1.0).contains(&decay) {
         return Err(RiskError::InvalidDecay);
     }
     let mut variance = returns[0] * returns[0];
@@ -202,9 +202,9 @@ pub fn portfolio_volatility(
     }
     let size = weights.len();
     let mut variance = 0.0;
-    for row in 0..size {
-        for column in 0..size {
-            variance += weights[row] * covariance_matrix[row * size + column] * weights[column];
+    for (row, row_weight) in weights.iter().enumerate() {
+        for (column, column_weight) in weights.iter().enumerate() {
+            variance += row_weight * covariance_matrix[row * size + column] * column_weight;
         }
     }
     Ok(variance.max(0.0).sqrt())
@@ -214,35 +214,50 @@ unsafe fn slice_from_ffi<'a>(values: *const f64, length: usize) -> Option<&'a [f
     if values.is_null() || length == 0 {
         None
     } else {
-        Some(std::slice::from_raw_parts(values, length))
+        Some(unsafe { std::slice::from_raw_parts(values, length) })
     }
 }
 
+/// Compute historical VaR through the C ABI.
+///
+/// # Safety
+/// `values` must point to `length` readable, properly aligned `f64` values for the duration of
+/// the call. The memory must not be mutated concurrently.
 #[no_mangle]
 pub unsafe extern "C" fn riskcore_historical_var(
     values: *const f64,
     length: usize,
     confidence: f64,
 ) -> f64 {
-    slice_from_ffi(values, length)
+    unsafe { slice_from_ffi(values, length) }
         .and_then(|slice| historical_var(slice, confidence).ok())
         .unwrap_or(f64::NAN)
 }
 
+/// Compute Expected Shortfall through the C ABI.
+///
+/// # Safety
+/// `values` must point to `length` readable, properly aligned `f64` values for the duration of
+/// the call. The memory must not be mutated concurrently.
 #[no_mangle]
 pub unsafe extern "C" fn riskcore_expected_shortfall(
     values: *const f64,
     length: usize,
     confidence: f64,
 ) -> f64 {
-    slice_from_ffi(values, length)
+    unsafe { slice_from_ffi(values, length) }
         .and_then(|slice| expected_shortfall(slice, confidence).ok())
         .unwrap_or(f64::NAN)
 }
 
+/// Compute maximum drawdown through the C ABI.
+///
+/// # Safety
+/// `values` must point to `length` readable, properly aligned `f64` values for the duration of
+/// the call. The memory must not be mutated concurrently.
 #[no_mangle]
 pub unsafe extern "C" fn riskcore_maximum_drawdown(values: *const f64, length: usize) -> f64 {
-    slice_from_ffi(values, length)
+    unsafe { slice_from_ffi(values, length) }
         .and_then(|slice| maximum_drawdown(slice).ok())
         .unwrap_or(f64::NAN)
 }
