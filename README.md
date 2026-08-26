@@ -1,6 +1,6 @@
-# riskcore
+# RiskKit
 
-A dependency-free Rust library for portfolio and financial risk analytics, with a thin Python `ctypes` adapter.
+A dependency-free Rust library for portfolio and financial risk analytics, with a thin Python `ctypes` adapter. The compiled core and command-line executable are named `riskcore`.
 
 The project concentrates numerical validation and risk definitions in a small compiled core. Python can orchestrate data work while Rust owns the hot, easily audited calculations. The result is a practical example of a mixed-language financial library without a heavy binding framework.
 
@@ -51,4 +51,3 @@ tests/                 adapter integration test
 ## Scope
 
 Risk measures are only as meaningful as the return horizon, data history, and modelling assumptions supplied to them. This project reports calculations; it does not perform data cleaning, position valuation, limit governance, or regulatory capital aggregation.
-
