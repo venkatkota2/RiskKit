@@ -1,6 +1,6 @@
 # RiskKit
 
-A dependency-free Rust library for portfolio and financial risk analytics, with a thin Python `ctypes` adapter. The compiled core and command-line executable are named `riskcore`.
+A small, auditable Rust financial-risk core with a thin Python `ctypes` interoperability layer. The compiled core and command-line executable are named `riskcore`.
 
 The project concentrates numerical validation and risk definitions in a small compiled core. Python can orchestrate data work while Rust owns the hot, easily audited calculations. The result is a practical example of a mixed-language financial library without a heavy binding framework.
 
@@ -14,7 +14,7 @@ The project concentrates numerical validation and risk definitions in a small co
 - A command-line risk report for one-column return files.
 - Stable C ABI functions consumed by the Python adapter.
 
-All functions reject empty inputs, non-finite observations, invalid confidence levels, and structurally invalid matrices.
+All functions reject empty inputs, non-finite observations, invalid confidence levels, and structurally invalid matrices. Portfolio volatility validates symmetry, diagonal values, and positive-semidefinite structure with a tolerance-aware dependency-free `LDL^T` factorization; it does not silently turn a materially negative variance into zero.
 
 ## Build and test
 
@@ -24,7 +24,7 @@ cargo build --release
 cargo run -- returns.csv 0.99
 ```
 
-Python adapter after a release build:
+Python adapter after a debug or release build from the source tree:
 
 ```python
 from python.riskcore import RiskCore
@@ -37,7 +37,11 @@ print(risk.expected_shortfall(returns, 0.99))
 
 ## Definitions
 
-VaR is returned as a positive loss at the requested confidence level. Historical VaR uses linearly interpolated empirical quantiles. Expected Shortfall is the mean loss at or beyond that VaR threshold. Drawdown compounds the supplied periodic returns and measures the greatest peak-to-trough decline.
+VaR is returned as a positive loss at the requested confidence level. Historical VaR uses linearly interpolated empirical quantiles. Expected Shortfall averages exactly the worst `1 - confidence` empirical mass, including a fractional boundary observation when needed. Drawdown compounds the supplied periodic returns and measures the greatest peak-to-trough decline.
+
+The Python adapter discovers `.dll`, `.dylib`, and `.so` builds under the local
+`target` directory, or accepts an explicit `RISKCORE_LIBRARY` path. It is a
+source-tree adapter; this repository does not claim to publish binary wheels.
 
 ## Repository layout
 
@@ -50,4 +54,4 @@ tests/                 adapter integration test
 
 ## Scope
 
-Risk measures are only as meaningful as the return horizon, data history, and modelling assumptions supplied to them. This project reports calculations; it does not perform data cleaning, position valuation, limit governance, or regulatory capital aggregation.
+Risk measures are only as meaningful as the return horizon, data history, and modelling assumptions supplied to them. This project is an auditable calculation core, not institutional risk-management software: it does not perform data cleaning, position valuation, limit governance, or regulatory capital aggregation.
