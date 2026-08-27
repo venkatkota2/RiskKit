@@ -1,5 +1,7 @@
 # RiskKit
 
+[![CI](https://github.com/venkatkota2/RiskKit/actions/workflows/ci.yml/badge.svg)](https://github.com/venkatkota2/RiskKit/actions/workflows/ci.yml)
+
 A small, auditable Rust financial-risk core with a thin Python `ctypes` interoperability layer. The compiled core and command-line executable are named `riskcore`.
 
 The project concentrates numerical validation and risk definitions in a small compiled core. Python can orchestrate data work while Rust owns the hot, easily audited calculations. The result is a practical example of a mixed-language financial library without a heavy binding framework.
@@ -23,6 +25,10 @@ cargo test
 cargo build --release
 cargo run -- returns.csv 0.99
 ```
+
+The CLI accepts a headerless, one-column numeric file. Extra columns,
+non-finite observations, malformed confidence arguments, and unexpected
+positional arguments fail explicitly instead of being ignored or defaulted.
 
 Python adapter after a debug or release build from the source tree:
 
