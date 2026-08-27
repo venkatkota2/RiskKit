@@ -1,3 +1,5 @@
+import pytest
+
 from python.riskcore import RiskCore
 
 
@@ -12,3 +14,13 @@ def test_python_adapter_calls_rust_core():
     assert expected_shortfall >= var > 0
     assert 0 < drawdown < 1
 
+
+def test_python_adapter_translates_ffi_failures():
+    core = RiskCore()
+
+    with pytest.raises(ValueError, match="finite observations"):
+        core.historical_var([0.01, float("nan")])
+    with pytest.raises(ValueError, match="rejected"):
+        core.historical_var([0.01, -0.02], 1.0)
+    with pytest.raises(ValueError, match="rejected"):
+        core.maximum_drawdown([0.01, -1.0])

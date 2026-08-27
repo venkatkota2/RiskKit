@@ -5,11 +5,19 @@ use std::process;
 
 fn read_returns(path: &str) -> Result<Vec<f64>, String> {
     let contents = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let values: Vec<f64> = contents
-        .lines()
-        .filter_map(|line| line.split(',').next())
-        .filter_map(|value| value.trim().parse::<f64>().ok())
-        .collect();
+    let mut values = Vec::new();
+    for (line_number, line) in contents.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value = line
+            .split(',')
+            .next()
+            .and_then(|field| field.trim().parse::<f64>().ok())
+            .filter(|parsed| parsed.is_finite())
+            .ok_or_else(|| format!("invalid return on line {}", line_number + 1))?;
+        values.push(value);
+    }
     if values.is_empty() {
         return Err("the input file contains no numeric returns".to_string());
     }
@@ -50,4 +58,3 @@ fn main() {
         }
     }
 }
-

@@ -10,6 +10,7 @@ pub enum RiskError {
     InvalidDecay,
     InvalidReturn,
     LengthMismatch,
+    InvalidCovarianceMatrix,
 }
 
 fn validate_returns(values: &[f64]) -> Result<(), RiskError> {
@@ -49,16 +50,19 @@ pub fn historical_var(returns: &[f64], confidence: f64) -> Result<f64, RiskError
 }
 
 pub fn expected_shortfall(returns: &[f64], confidence: f64) -> Result<f64, RiskError> {
-    let value_at_risk = historical_var(returns, confidence)?;
-    let mut total = 0.0;
-    let mut count = 0usize;
-    for loss in returns.iter().map(|value| -value) {
-        if loss >= value_at_risk {
-            total += loss;
-            count += 1;
-        }
+    validate_returns(returns)?;
+    validate_confidence(confidence)?;
+    let mut losses: Vec<f64> = returns.iter().map(|value| -value).collect();
+    losses.sort_by(|left, right| right.partial_cmp(left).unwrap_or(Ordering::Equal));
+
+    let tail_observations = (1.0 - confidence) * losses.len() as f64;
+    let whole_observations = tail_observations.floor() as usize;
+    let boundary_fraction = tail_observations - whole_observations as f64;
+    let mut tail_total = losses[..whole_observations].iter().sum::<f64>();
+    if boundary_fraction > 0.0 {
+        tail_total += boundary_fraction * losses[whole_observations];
     }
-    Ok(if count == 0 { value_at_risk } else { total / count as f64 })
+    Ok((tail_total / tail_observations).max(0.0))
 }
 
 pub fn mean(returns: &[f64]) -> Result<f64, RiskError> {
@@ -187,27 +191,86 @@ pub fn covariance(left: &[f64], right: &[f64]) -> Result<f64, RiskError> {
         / (left.len() - 1) as f64)
 }
 
-pub fn portfolio_volatility(
-    weights: &[f64],
-    covariance_matrix: &[f64],
-) -> Result<f64, RiskError> {
+pub fn portfolio_volatility(weights: &[f64], covariance_matrix: &[f64]) -> Result<f64, RiskError> {
     if weights.is_empty() {
         return Err(RiskError::EmptyInput);
     }
     if covariance_matrix.len() != weights.len() * weights.len() {
         return Err(RiskError::LengthMismatch);
     }
-    if weights.iter().chain(covariance_matrix).any(|value| !value.is_finite()) {
+    if weights
+        .iter()
+        .chain(covariance_matrix)
+        .any(|value| !value.is_finite())
+    {
         return Err(RiskError::NonFiniteInput);
     }
     let size = weights.len();
+    validate_covariance_matrix(covariance_matrix, size)?;
     let mut variance = 0.0;
     for (row, row_weight) in weights.iter().enumerate() {
         for (column, column_weight) in weights.iter().enumerate() {
             variance += row_weight * covariance_matrix[row * size + column] * column_weight;
         }
     }
+    let scale = covariance_matrix
+        .iter()
+        .fold(1.0_f64, |current, value| current.max(value.abs()));
+    let variance_tolerance = 1e-12 * scale * size as f64;
+    if variance < -variance_tolerance {
+        return Err(RiskError::InvalidCovarianceMatrix);
+    }
     Ok(variance.max(0.0).sqrt())
+}
+
+fn validate_covariance_matrix(matrix: &[f64], size: usize) -> Result<(), RiskError> {
+    let scale = matrix
+        .iter()
+        .fold(1.0_f64, |current, value| current.max(value.abs()));
+    let tolerance = 1e-12 * scale * size as f64;
+
+    for row in 0..size {
+        if matrix[row * size + row] < -tolerance {
+            return Err(RiskError::InvalidCovarianceMatrix);
+        }
+        for column in 0..row {
+            if (matrix[row * size + column] - matrix[column * size + row]).abs() > tolerance {
+                return Err(RiskError::InvalidCovarianceMatrix);
+            }
+        }
+    }
+
+    // Tolerance-aware LDL^T factorization. A zero pivot is valid for a
+    // semidefinite matrix only when the corresponding residual column is zero.
+    let mut lower = vec![0.0; size * size];
+    let mut diagonal = vec![0.0; size];
+    for row in 0..size {
+        for column in 0..row {
+            let mut residual = matrix[row * size + column];
+            for previous in 0..column {
+                residual -= lower[row * size + previous]
+                    * diagonal[previous]
+                    * lower[column * size + previous];
+            }
+            if diagonal[column] > tolerance {
+                lower[row * size + column] = residual / diagonal[column];
+            } else if residual.abs() > tolerance {
+                return Err(RiskError::InvalidCovarianceMatrix);
+            }
+        }
+
+        let mut pivot = matrix[row * size + row];
+        for previous in 0..row {
+            let entry = lower[row * size + previous];
+            pivot -= entry * entry * diagonal[previous];
+        }
+        if pivot < -tolerance {
+            return Err(RiskError::InvalidCovarianceMatrix);
+        }
+        diagonal[row] = if pivot.abs() <= tolerance { 0.0 } else { pivot };
+        lower[row * size + row] = 1.0;
+    }
+    Ok(())
 }
 
 unsafe fn slice_from_ffi<'a>(values: *const f64, length: usize) -> Option<&'a [f64]> {
@@ -294,9 +357,55 @@ mod tests {
     }
 
     #[test]
+    fn portfolio_volatility_accepts_singular_psd_matrix() {
+        let weights = [0.5, 0.5];
+        let matrix = [0.04, 0.04, 0.04, 0.04];
+        assert!((portfolio_volatility(&weights, &matrix).unwrap() - 0.2).abs() < 1e-12);
+    }
+
+    #[test]
+    fn invalid_covariance_matrices_are_rejected() {
+        let weights = [0.5, 0.5];
+        assert_eq!(
+            portfolio_volatility(&weights, &[0.04, 0.01, 0.02, 0.03]),
+            Err(RiskError::InvalidCovarianceMatrix)
+        );
+        assert_eq!(
+            portfolio_volatility(&weights, &[0.04, 0.06, 0.06, 0.04]),
+            Err(RiskError::InvalidCovarianceMatrix)
+        );
+        assert_eq!(
+            portfolio_volatility(&weights, &[-0.01, 0.0, 0.0, 0.02]),
+            Err(RiskError::InvalidCovarianceMatrix)
+        );
+        assert_eq!(
+            portfolio_volatility(&weights, &[0.04, f64::NAN, f64::NAN, 0.03]),
+            Err(RiskError::NonFiniteInput)
+        );
+        assert_eq!(
+            portfolio_volatility(&weights, &[0.04, 0.01]),
+            Err(RiskError::LengthMismatch)
+        );
+    }
+
+    #[test]
+    fn expected_shortfall_uses_fractional_empirical_tail() {
+        // At 80% confidence, exactly two of ten observations belong in the tail.
+        let returns = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.10, -0.20];
+        assert!((expected_shortfall(&returns, 0.80).unwrap() - 0.15).abs() < 1e-12);
+
+        // One positive loss fills half the tail; the zero boundary fills the rest.
+        let sparse_loss = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.10];
+        assert!((expected_shortfall(&sparse_loss, 0.80).unwrap() - 0.05).abs() < 1e-12);
+    }
+
+    #[test]
     fn invalid_inputs_are_rejected() {
         assert_eq!(historical_var(&[], 0.95), Err(RiskError::EmptyInput));
-        assert_eq!(historical_var(&RETURNS, 1.0), Err(RiskError::InvalidConfidence));
+        assert_eq!(
+            historical_var(&RETURNS, 1.0),
+            Err(RiskError::InvalidConfidence)
+        );
         assert_eq!(maximum_drawdown(&[-1.0]), Err(RiskError::InvalidReturn));
     }
 }
