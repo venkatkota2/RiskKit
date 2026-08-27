@@ -41,9 +41,7 @@ class RiskCore:
         try:
             self._library = ctypes.CDLL(str(path))
         except OSError as error:
-            raise OSError(
-                f"could not load riskcore shared library at {path}: {error}"
-            ) from error
+            raise OSError(f"could not load riskcore shared library at {path}: {error}") from error
         double_pointer = ctypes.POINTER(ctypes.c_double)
         for name in ("riskcore_historical_var", "riskcore_expected_shortfall"):
             function = getattr(self._library, name)
@@ -69,21 +67,13 @@ class RiskCore:
             raise ValueError("riskcore rejected the supplied arguments")
         return value
 
-    def historical_var(
-        self, returns: Iterable[float], confidence: float = 0.99
-    ) -> float:
+    def historical_var(self, returns: Iterable[float], confidence: float = 0.99) -> float:
         values, length = self._array(returns)
-        return self._checked(
-            self._library.riskcore_historical_var(values, length, confidence)
-        )
+        return self._checked(self._library.riskcore_historical_var(values, length, confidence))
 
-    def expected_shortfall(
-        self, returns: Iterable[float], confidence: float = 0.99
-    ) -> float:
+    def expected_shortfall(self, returns: Iterable[float], confidence: float = 0.99) -> float:
         values, length = self._array(returns)
-        return self._checked(
-            self._library.riskcore_expected_shortfall(values, length, confidence)
-        )
+        return self._checked(self._library.riskcore_expected_shortfall(values, length, confidence))
 
     def maximum_drawdown(self, returns: Iterable[float]) -> float:
         values, length = self._array(returns)

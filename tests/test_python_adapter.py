@@ -1,4 +1,5 @@
 import pytest
+
 from python.riskcore import RiskCore
 
 
